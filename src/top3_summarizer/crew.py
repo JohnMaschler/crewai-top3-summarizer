@@ -9,7 +9,8 @@ from crewai_tools import (
 )
 import os
 from dotenv import load_dotenv
-from tools.sentiment_tool import LLMSentimentTool
+from top3_summarizer.tools.sentiment_tool import LLMSentimentTool
+
 
 load_dotenv()
 # If you want to run a snippet of code before or after the crew starts,
