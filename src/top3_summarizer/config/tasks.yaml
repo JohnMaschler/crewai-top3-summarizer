@@ -1,0 +1,185 @@
+search:
+  description: >
+    Find 8-12 candidate *news articles* about "{topic}" published in the last 3 days.
+    A "news article" means:
+    - It has its own headline and its own URL (not a section front like /markets or /business).
+    - It describes a specific event, move, or data point (e.g. "Stocks rise as Fed signals cuts").
+    - It is NOT a generic explainer, weekly recap, landing page, ticker page, watchlist, or homepage.
+
+    For EACH result return:
+    {
+      "title": ...,
+      "url": ...,
+      "source": ...,
+      "published": "YYYY-MM-DD",
+      "why_relevant": "1 short line tying it to {topic}"
+    }
+
+    Output a JSON list (length 8-12).
+  expected_output: JSON list with 8-12 items including published dates and why_relevant.
+  agent: searcher
+
+
+rank:
+  description: >
+    You are choosing the top 3 articles from the candidate list produced by `search`.
+    RULES (apply all of these):
+
+    1. Each selected item MUST be a direct article URL, not:
+       - a markets homepage,
+       - a generic section page,
+       - a dashboard of tickers,
+       - a weekly recap archive landing page.
+
+       If url looks like just /markets, /business, /markets/us, /markets/live, or similar:
+       REJECT IT.
+
+    2. Prefer articles that:
+       - Mention specific drivers of today's market move
+         (e.g. Fed rate expectations, CPI, earnings surprise, geopolitical shock).
+       - Are explicitly timestamped "today" or "yesterday".
+       - Focus on U.S. equities if {topic} is about U.S. stock market.
+
+    3. De-duplicate near-duplicates (same story copied by multiple outlets).
+
+    Return EXACTLY 3 objects as JSON:
+    [
+      {
+        "title": ...,
+        "url": ...,
+        "source": ...,
+        "published": ...,
+        "why_selected": "why this article is important to {topic} today"
+      },
+      ...
+    ]
+  expected_output: JSON list with exactly 3 high-quality article objects.
+  agent: ranker
+  context: [search]
+
+
+read:
+  description: >
+    You are given the ranked top 3 articles as JSON with {title, url, source, published}.
+    For EACH article.url:
+    - Use the scraping tool to fetch page text.
+    - Then CLEAN it:
+      * Keep only the main story body (the paragraphs that describe events, numbers, quotes).
+      * Drop navigation links, menus, stock tickers, "sign in" prompts, "subscribe" banners,
+        footer junk, unrelated headlines, and "More top stories" blocks.
+
+    Try up to 2 times per URL.
+    If both attempts are garbage (like pure navigation text), discard that URL and
+    pull the NEXT best article from the ranked list if available.
+
+    Return JSON:
+    [
+      {
+        "title": ...,
+        "url": ...,
+        "source": ...,
+        "published": ...,
+        "author": "if found, else null",
+        "clean_text": "the cleaned main story body only, 500-1500 words"
+      },
+      ...
+    ]
+  expected_output: JSON array of cleaned article bodies (3 items).
+  agent: reader
+  context: [rank]
+
+summarize:
+  description: >
+    For each article in the Reader output:
+    - Base your work ONLY on "clean_text".
+    - Produce:
+      "summary": 2-3 neutral sentences tying the article to '{topic}' today.
+      "quote": one short direct quote from the article body (use quotes).
+      "why_matters": one sentence explaining why an exec or trader should care.
+
+    Return JSON:
+    [
+      {
+        "title": ...,
+        "url": ...,
+        "summary": ...,
+        "quote": ...,
+        "why_matters": ...
+      },
+      ...
+    ]
+  expected_output: JSON with 3 summarized items.
+  agent: summarizer
+  context: [read]
+
+
+analyze_sentiment:
+  description: >
+    You are given the Reader output (which includes clean_text) and Summarizer output.
+    For each article:
+    - Call llm_sentiment_tool with clean_text.
+    - The tool returns {sentiment: bullish|bearish|neutral, rationale: "..."}.
+
+    Build final JSON:
+    [
+      {
+        "title": ...,
+        "url": ...,
+        "sentiment": "...",
+        "rationale": "...",
+        "why_matters": "... (copy from summarizer)"
+      }
+    ]
+
+    Do not invent sentiment. Use the tool output exactly.
+  expected_output: >
+    A JSON array with one object per article, each containing:
+    {title, url, sentiment, rationale, why_matters}.
+    Example:
+    [
+      {
+        "title": "Stocks jump as Fed signals patience",
+        "url": "https://example.com/article",
+        "sentiment": "bullish",
+        "rationale": "Article frames investor mood as optimistic about rate cuts",
+        "why_matters": "Lower-rate expectations are described as the main driver of today's rally"
+      }
+    ]
+  agent: analyst
+  context: [read, summarize]
+
+
+edit:
+  description: >
+    You are an intraday market strategist.
+
+    Using:
+    - Summaries (from summarize)
+    - Sentiment (from analyze_sentiment)
+    - Today's context provided in inputs
+
+    Write a concise market wrap for {topic} as of {as_of_date}.
+
+    STRICT REQUIREMENTS:
+    1. The header line MUST be exactly:
+       "## Market Wrap for {topic} ({as_of_date})"
+       Do not invent a different date.
+    2. You MUST include:
+       - Where the Dow, S&P 500, and Nasdaq moved TODAY
+         (direction and rough magnitude: "up ~1%" / "down ~0.7%").
+       - The MAIN driver (example: Fed rate-cut hopes, cooler inflation, earnings).
+       - What traders are watching next (Fed meeting timing, CPI path, guidance risk).
+    3. You are allowed to infer drivers from article summaries and sentiment,
+       but do NOT invent numbers you weren't given.
+
+    Output sections in Markdown:
+    ## Market Wrap for {topic} ({as_of_date})
+    ### What moved
+    ### Why it moved
+    ### What's next
+
+  expected_output: >
+    A single Markdown string with those 3 sections,
+    and with the exact date string {as_of_date} in the header.
+  agent: editor
+  context: [summarize, analyze_sentiment]

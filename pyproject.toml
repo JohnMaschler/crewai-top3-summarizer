@@ -1,0 +1,25 @@
+[project]
+name = "top3_summarizer"
+version = "0.1.0"
+description = "top3_summarizer using crewAI"
+authors = [{ name = "Johnathon Maschler", email = "johnnymaschler@gmail.com" }]
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "crewai[tools]==1.1.0",
+    "qdrant-client==1.15.1",
+]
+
+[project.scripts]
+top3_summarizer = "top3_summarizer.main:run"
+run_crew = "top3_summarizer.main:run"
+train = "top3_summarizer.main:train"
+replay = "top3_summarizer.main:replay"
+test = "top3_summarizer.main:test"
+run_with_trigger = "top3_summarizer.main:run_with_trigger"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.crewai]
+type = "crew"
